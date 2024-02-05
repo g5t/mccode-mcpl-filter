@@ -1,7 +1,7 @@
 /*
 * Filter intended for pre-MCPL_output use to avoid keeping useless particles.
 *
-* Component: MCPL_filter
+* Component: MCPL_probability_filter
 * 
 * Writen by: Gregory Tucker
 * Date: Feb 5 2024
@@ -12,8 +12,8 @@
 * 
 */
 
-DEFINE COMPONENT MCPL_filter
-SETTING PARAMETERS (distance, xmin=UNSET, xmax=UNSET, ymin=UNSET, ymax=UNSET, radius=UNSET, xwidth=UNSET, xheight=UNSET, accept=0.)
+DEFINE COMPONENT MCPL_probability_filter
+SETTING PARAMETERS (distance, xmin=UNSET, xmax=UNSET, ymin=UNSET, ymax=UNSET, radius=UNSET, xwidth=UNSET, yheight=UNSET, accept=0.)
 OUTPUT PARAMETERS ()
 SHARE
 %{
