@@ -1,0 +1,159 @@
+/*
+* Filter intended for pre-MCPL_output use to avoid keeping useless particles.
+*
+* Component: MCPL_filter
+* 
+* Writen by: Gregory Tucker
+* Date: Feb 5 2024
+* Updates:
+*
+*
+* Origin: <a href="http://www.ess.eu">European Spallation Source, ERIC</a>
+* 
+*/
+
+DEFINE COMPONENT MCPL_filter
+SETTING PARAMETERS (distance, xmin=UNSET, xmax=UNSET, ymin=UNSET, ymax=UNSET, radius=UNSET, xwidth=UNSET, xheight=UNSET, accept=0.)
+OUTPUT PARAMETERS ()
+SHARE
+%{
+void mcpl_filter_print_if(int condition, char* level, char* msg, char * comp){
+  if (condition) fprintf(stderr, "MCPL_filter: %s, %s: %s\n", comp, level, msg);
+}
+void mcpl_filter_error_if(int condition, char* msg, char* comp){
+  mcpl_filter_print_if(condition, "ERROR", msg, comp);
+  if (condition) exit(-1);
+}
+void mcpl_filter_warn_if(int condition, char* msg, char* comp){
+  mcpl_filter_print_if(condition, "WARNING", msg, comp);
+}
+%}
+
+DECLARE %{
+  char isradial;
+%}
+INITIALIZE
+%{
+if (is_unset(radius)){
+  isradial = 0;
+  if (all_set(3, xwidth, xmin, xmax)){
+    mcpl_filter_error_if(xwidth != xmax - xmin, "specifying xwidth, xmin and xmax requires consistent parameters", NAME_CURRENT_COMP);
+  } else {
+    mcpl_filter_error_if(is_unset(xwidth) && any_unset(2, xmin, xmax), "specify either xwidth or xmin & xmax", NAME_CURRENT_COMP);
+  }
+  if (all_set(3, yheight, ymin, ymax)){
+    mcpl_filter_error_if(yheight != ymax - ymin, "specifying yheight, ymin and ymax requires consistent parameters", NAME_CURRENT_COMP);
+  } else {
+    mcpl_filter_error_if(is_unset(yheight) && any_unset(2, ymin, ymax), "specify either yheight or ymin & ymax", NAME_CURRENT_COMP);
+  }
+  if (any_unset(2, xmin, xmax)){
+    xmax = xwidth / 2;
+    xmin = -xmax;
+  }
+  if (any_unset(2, ymin, ymax)){
+    ymax = yheight / 2;
+    ymin = -ymax;
+  }
+  mcpl_filter_warn_if(xmin == xmax || ymin == ymax, "No in-area, is this intentional?", NAME_CURRENT_COMP);
+} else {
+  isradial=1;
+  mcpl_filter_error_if(any_set(6, xmin, xmax, ymin, ymax, xwidth, yheight),
+                       "specify radius OR width and height parameters", NAME_CURRENT_COMP);
+  mcpl_filter_warn_if(radius == 0., "No in-area, is this intentional?", NAME_CURRENT_COMP);
+}
+%}
+
+TRACE
+%{
+int ok;
+ok = 1;
+double tx, ty, tz, tvx, tvy, tvz, tt;
+tx = x;
+ty = y;
+tz = z;
+tvx = vx;
+tvy = vy;
+tvz = vz;
+tt = t;
+
+
+// Emulate PROP_Z0 -- but propagate to z = distance
+double local_dt, local_gx, local_gy, local_gz;
+if (mcgravitation){
+  Coords local_g;
+  local_g = rot_apply(ROT_A_CURRENT_COMP, coords_set(0, -GRAVITY, 0));
+  coords_get(local_g, &local_gx, &local_gy, &local_gz);
+} else {
+  local_gz = 0;
+  local_gy = 0;
+  local_gz = 0;
+}
+// solve_2nd_order is OK with local_gz == 0
+if (solve_2nd_order(&local_dt, NULL, -local_gz/2, -vz, distance-z)) {
+  // update (x, y, z) & t -- plus any of (vx, vy, vz) if local_g != (0, 0, 0)
+  PROP_GRAV_DT(local_dt, local_gx, local_gy, local_gz);
+} else {
+  ok = 0;
+}
+  
+if (!isradial ? (x < xmin || x > xmax || y < ymin || y > ymax) : (x * x + y * y > radius * radius)){
+  if (accept && rand01() < accept) {
+    // this particle is outside of our filter, but we let it pass
+    // since we only take N-percent (N = 100 * accept) we increase
+    // their weight by 1/accept to preserve statistics.
+    p /= accept;
+  } else {
+    ok = 0;
+  }
+}
+if (ok) {
+  // rewind time to the initial configuration
+  x = tx;
+  y = ty;
+  z = tz;
+  t = tt;
+  vx = tvx;
+  vy = tvy;
+  vz = tvz;
+  SCATTER;
+} else {
+  ABSORB;
+}
+%}
+
+MCDISPLAY
+%{
+if (is_unset(radius)) {
+  multiline(5, (double) xmin, (double) ymin, (double) distance, 
+               (double) xmax, (double) ymin, (double) distance,
+               (double) xmax, (double) ymax, (double) distance,
+               (double) xmin, (double) ymax, (double) distance,
+               (double) xmin, (double) ymin, (double) distance
+  );
+  multiline(12, 0.0, 0.0, 0.0,
+               (double) xmin, (double) ymin, (double) distance, 
+               (double) xmax, (double) ymin, (double) distance,
+               0.0, 0.0, 0.0,
+               (double) xmax, (double) ymin, (double) distance,
+               (double) xmax, (double) ymax, (double) distance,
+               0.0, 0.0, 0.0,
+               (double) xmax, (double) ymax, (double) distance,
+               (double) xmin, (double) ymax, (double) distance,
+               0.0, 0.0, 0.0,
+               (double) xmin, (double) ymax, (double) distance,
+               (double) xmin, (double) ymin, (double) distance
+  );
+} else {
+  int n = 5;
+  double d = distance / (double) n;
+  double r = radius / (double) n;
+  for (int i=1;  i<5; ++i){
+    circle("xy", 0., 0., d * (double) i, r * (double) i);
+  }
+  multiline(3, 0.0, (double) radius, (double) distance, 0.0, 0.0, 0.0, 0.0, (double) -radius, (double) distance);
+  multiline(3, (double) radius, 0.0, (double) distance, 0.0, 0.0, 0.0, (double) -radius, 0.0, (double) distance);
+}
+
+%}
+
+END
